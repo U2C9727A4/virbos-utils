@@ -1,10 +1,6 @@
 #!/usr/bin/lua
 
-Profiles = { Workstation = {
-    Pkgs = "firefox libreoffice-fresh inkscape kdenlive gimp krita",
-    -- PostShell variable will contain a bash command that does post package install things such as optimizing system for the specific profile.
-    PostShell = "alacritty" 
-}}
+Profiles = {}
 
 function RunCommand(command)
    local cmd = io.popen(command)
@@ -25,6 +21,10 @@ function Checkroot()
    end
 end
 
+function clear_file(cfile)
+    RunCommand("dd if=/dev/null of="..cfile)
+end
+
 function ask_yn(question)
    local out = RunCommand("gum confirm \""..question.."\"")
    local exitcode = out[2]
@@ -42,8 +42,12 @@ function ask(args)
 end
 
 function getdeps()
-   print("Downloading script dependencies...")
-   RunCommand("pacman --noconfirm -Sy gum cpupower > /dev/null 2>&1")
+   print("Checking dependencies...")
+	for _, pkg in ipairs({"gum", "cpupower"}) do
+		if not RunCommand(">/dev/null pacman -Qq " .. pkg) then
+			error("dependency " .. pkg .. " not present", 0)
+		end
+	end
 end
 
 function create_profile(name, packages, postshellcommand)
@@ -66,10 +70,9 @@ function get_profiles(inputTable)
 end
 
 function write_file(file, data)
-    local ifile = io.open(file, "w")
+    local ifile = io.open(file, "a")
     ifile:write(data)
     ifile:close()
-    
 end
 
 function initfiles()
@@ -89,22 +92,23 @@ function clear_pkgs(packages)
     local out = RunCommand("pacman -Qdtq")
     local orphanaged_packages = out[1]
     RunCommand("pacman --noconfirm -Rns "..orphanaged_packages)
-    
+
 end
 
 function save_profileData(profilename, profilepkgs)
-    local oldstuff = {}
-    oldstuff[oldprofilename] = profilename
-    oldstuff[oldpkgs] = profilepkgs
-    write_file("/etc/virbos-profile-old", oldstuff)
+    clear_file("/etc/virbos-profile-old")
+    write_file("/etc/virbos-profile-old", "oldprofilename = \""..profilename.."\"")
+    write_file("/etc/virbos-profile-old", "\noldpkgs = \""..profilepkgs.."\"")
 end
 
   function select_profile()
+    dofile("/etc/virbos-profile-old")
     local profs = get_profiles(Profiles)
     RunCommand("clear")
     local out = ask(profs)
     local out = out:gsub('\n$', "", 1)
     local profile = Profiles[out]
+    oldprofilename = oldprofilename:gsub('\n$', "", 1)
     if old_profile_exists == true then
         if out == oldprofilename then
             print("The selected profile is already selected, exiting...")
@@ -117,13 +121,13 @@ end
         print("Saving profile...")
         save_profileData(out, profile.Pkgs)
     end
-    
+
     print("Downloading profile packages...")
     install_pkgs(Profiles[out].Pkgs)
     print("Running post shell commands...")
     RunCommand(Profiles[out].PostShell)
 
-    
+
 end
 -- the following commands were used in testing of the script. Please remove them when using the profile chooser in real-world.
 Checkroot()
@@ -131,4 +135,4 @@ getdeps()
 initfiles()
 create_profile("testProfile", "cheese", "cheese > /dev/null")
 select_profile()
-
+print(oldprofilename)
